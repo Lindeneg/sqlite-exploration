@@ -98,11 +98,11 @@ func newPage(f io.ReadSeeker, root bool, pageSize uint16, offset int64) (*page, 
 
 func (p *page) String() string {
 	var buf strings.Builder
-	buf.WriteString(fmt.Sprintf("Offset:%s%d\n", repeatStringDefault(6), p.Offset))
+	buf.WriteString(fmt.Sprintf("Page Offset:%s%d\n", repeatStringDefault(11), p.Offset))
 	buf.WriteString(fmt.Sprintf("%s\n", p.Header.String()))
 	for i, c := range p.Cells {
 		buf.WriteString(
-			fmt.Sprintf("Cell:%s%d\n%s\n", repeatStringDefault(4), i, c.String()))
+			fmt.Sprintf("Cell:%s%d\n%s\n", repeatStringDefault(4), i+1, c.String()))
 	}
 	return buf.String()
 }

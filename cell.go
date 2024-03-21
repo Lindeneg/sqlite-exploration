@@ -7,6 +7,34 @@ import (
 	"io"
 )
 
+type serialType int
+
+const (
+	SERIAL_NULL serialType = iota
+	SERIAL_8_TWOS_COMPLEMENT
+	SERIAL_16_TWOS_COMPLEMENT
+	SERIAL_24_TWOS_COMPLEMENT
+	SERIAL_32_TWOS_COMPLEMENT
+	SERIAL_48_TWOS_COMPLEMENT
+	SERIAL_64_TWOS_COMPLEMENT
+	SERIAL_754_2008_64_FLOAT
+	SERIAL_0
+	SERIAL_1
+	SERIAL_INTERNAL_1
+	SERIAL_INTERNAL_2
+	SERIAL_BLOB
+	SERIAL_TEXT
+)
+
+type cellHeader struct {
+	Type  serialType
+	Value int64
+}
+
+func (c cellHeader) String() string {
+	return fmt.Sprintf("(Type=%d,Value=%d)", c.Type, c.Value)
+}
+
 type cell struct {
 	Offset            int64
 	PageType          uint8
@@ -14,8 +42,9 @@ type cell struct {
 	HeaderSize        uint8
 	PayloadSize       uint64
 	RowID             uint8
-	Data              []byte
 	FirstOverflowPage uint32
+	Header            []cellHeader
+	Data              []byte
 }
 
 func newCell(f io.ReadSeeker, p *page, offset int64) (*cell, error) {
@@ -53,39 +82,56 @@ func newCell(f io.ReadSeeker, p *page, offset int64) (*cell, error) {
 	return &c, nil
 }
 
-// Leaf Table starts with two variants, then a byte array
+// leaf table starts with two variants, then a byte array
 // and then a 4-byte integer for overflow page ptr
 func parseLeafTableCell(buf []byte, c *cell) error {
 	var offset int64 = 0
-	payloadLength, read, err := readVarint(buf)
-	if err != nil {
-		return err
-	}
+	// get payload length in bytes (which includes header size)
+	payloadLength, read := readVariant(buf)
 	offset += int64(read)
-	rowID, read, err := readVarint(buf[offset:])
-	if err != nil {
-		return err
-	}
+	// get row id of cell
+	rowID, read := readVariant(buf[offset:])
 	offset += int64(read)
 	c.RowID = uint8(rowID)
-	headerLength, read, err := readVarint(buf[offset:])
+	// get the header length
+	headerLength, read := readVariant(buf[offset:])
+	c.HeaderSize = uint8(headerLength)
+	// set the actual payload size i.e without header length
+	c.PayloadSize = uint64(payloadLength) - uint64(c.HeaderSize)
+	// read record (header and data)
+	dataReader := bytes.NewReader(buf)
+	// read header
+	headerBuf := make([]byte, c.HeaderSize)
+	read, err := dataReader.ReadAt(headerBuf, offset)
 	if err != nil {
 		return err
 	}
-	c.HeaderSize = uint8(headerLength)
-	c.PayloadSize = uint64(payloadLength) - uint64(c.HeaderSize)
-	// TODO: READ HEADER
-	// stuff...
-
-	// Read Data
-	offset += int64(c.HeaderSize)
-	dataReader := bytes.NewReader(buf)
+	offset += int64(read)
+	// skip header size byte
+	variants, _ := readVariants(headerBuf[1:])
+	// parse variants
+	for _, variant := range variants {
+		if variant > int64(SERIAL_TEXT) && variant%2 == 1 {
+			c.Header = append(c.Header, cellHeader{Type: SERIAL_TEXT, Value: (variant - 13) / 2})
+			continue
+		}
+		if variant > int64(SERIAL_BLOB) && variant%2 == 0 {
+			c.Header = append(c.Header, cellHeader{Type: SERIAL_BLOB, Value: (variant - 12) / 2})
+			continue
+		}
+		// probably much stupid
+		c.Header = append(c.Header, cellHeader{Type: serialType(variant), Value: variant})
+	}
+	// read payload data
 	dataBuf := make([]byte, c.PayloadSize)
-	n, _ := dataReader.ReadAt(dataBuf, offset)
+	read, err = dataReader.ReadAt(dataBuf, offset)
+	if err != nil {
+		return err
+	}
 	c.Data = dataBuf
-
-	// Read page number of first overflow page
-	offset += int64(n)
+	// read page number of first overflow page
+	// these four bytes are 0, if there is no such page
+	offset += int64(read)
 	var overflowPage uint32
 	if err := readBigEndianInt(buf[offset:offset+4], &overflowPage); err != nil {
 		return err
@@ -94,6 +140,8 @@ func parseLeafTableCell(buf []byte, c *cell) error {
 	return nil
 }
 
+// interior table only contains the left child
+// page number and the row id of the cell
 func parseInteriorTable(buf []byte, c *cell) error {
 	if err := readBigEndianInt(buf[:4], &c.LeftPageNumber); err != nil {
 		return err
@@ -104,43 +152,46 @@ func parseInteriorTable(buf []byte, c *cell) error {
 	return nil
 }
 
+// this is kind of stupid, whole thing probably is actually
 func (p *cell) String() string {
 	switch p.PageType {
 	case LeafTableType:
 		return primitiveStructString(struct {
-			Offset            int64
+			CellOffset        int64
 			HeaderSize        uint8
 			PayloadSize       uint64
 			RowID             uint8
 			FirstOverflowPage uint32
+			Header            []cellHeader
 			Data              string
 		}{
-			Offset:            p.Offset,
+			CellOffset:        p.Offset,
 			HeaderSize:        p.HeaderSize,
 			PayloadSize:       p.PayloadSize,
 			RowID:             p.RowID,
 			FirstOverflowPage: p.FirstOverflowPage,
+			Header:            p.Header,
 			Data:              string(p.Data),
 		})
 	case InteriorTableType:
 		return primitiveStructString(struct {
-			Offset         int64
+			CellOffset     int64
 			LeftPageNumber uint32
 			RowID          uint8
 		}{
-			Offset:         p.Offset,
+			CellOffset:     p.Offset,
 			LeftPageNumber: p.LeftPageNumber,
 			RowID:          p.RowID,
 		})
 	case LeafIndexType:
 		return primitiveStructString(struct {
-			Offset            int64
+			CellOffset        int64
 			HeaderSize        uint8
 			PayloadSize       uint64
 			FirstOverflowPage uint32
 			Data              string
 		}{
-			Offset:            p.Offset,
+			CellOffset:        p.Offset,
 			HeaderSize:        p.HeaderSize,
 			PayloadSize:       p.PayloadSize,
 			FirstOverflowPage: p.FirstOverflowPage,
@@ -148,14 +199,14 @@ func (p *cell) String() string {
 		})
 	case InteriorIndexType:
 		return primitiveStructString(struct {
-			Offset            int64
+			CellOffset        int64
 			LeftPageNumber    uint32
 			HeaderSize        uint8
 			PayloadSize       uint64
 			FirstOverflowPage uint32
 			Data              string
 		}{
-			Offset:            p.Offset,
+			CellOffset:        p.Offset,
 			LeftPageNumber:    p.LeftPageNumber,
 			HeaderSize:        p.HeaderSize,
 			PayloadSize:       p.PayloadSize,

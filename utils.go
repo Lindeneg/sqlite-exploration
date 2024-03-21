@@ -51,16 +51,17 @@ func offsetToPageNumber(pageSize int64, offset int64) int64 {
 	return (offset / pageSize) + 1
 }
 
-func readVarint(data []byte) (int64, int, error) {
-	endIdx := 0
-	for i := 0; i < len(data); i++ {
-		endIdx++
+func readVariant(data []byte) (int64, int) {
+	i := 0
+	for i < len(data) {
 		if data[i]&0x80 == 0 {
+			i++
 			break
 		}
+		i++
 	}
 	var val int64 = 0
-	dataSlice := data[:endIdx]
+	dataSlice := data[:i]
 	for i, d := range dataSlice {
 		if i == len(dataSlice)-1 {
 			val += int64(d)
@@ -72,5 +73,16 @@ func readVarint(data []byte) (int64, int, error) {
 		}
 		val += (int64(d) - 128) * (128 ^ n)
 	}
-	return val, endIdx, nil
+	return val, i
+}
+
+func readVariants(data []byte) ([]int64, int) {
+	variants := []int64{}
+	i := 0
+	for i < len(data) {
+		variant, read := readVariant(data[i:])
+		variants = append(variants, variant)
+		i += read
+	}
+	return variants, i
 }

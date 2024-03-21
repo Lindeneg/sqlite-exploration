@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 const (
@@ -219,6 +220,13 @@ func newDatabaseFile(databasePath string) (*databaseFile, error) {
 		return nil, err
 	}
 	db.RootPage = rootPage
+	if db.RootPage.Header.PageType == InteriorTableType {
+		for _, cell := range db.RootPage.Cells {
+			if err := db.AddPage(int(cell.LeftPageNumber)); err != nil {
+				return nil, err
+			}
+		}
+	}
 	return &db, nil
 }
 
@@ -233,9 +241,18 @@ func (d *databaseFile) AddPage(pageNumber int) error {
 }
 
 func (d *databaseFile) String() string {
-	return fmt.Sprintf(`DATABASE HEADER
+	var buf strings.Builder
+	buf.WriteString(fmt.Sprintf(`DATABASE HEADER
 %s
 PAGE COUNT: %d
+
 ROOT PAGE
-%s`, d.Header.String(), len(d.Pages)+1, d.RootPage.String())
+-----------
+%s`, d.Header.String(), len(d.Pages)+1, d.RootPage.String()))
+	for _, p := range d.Pages {
+		buf.WriteString(fmt.Sprintf(`PAGE %d
+-----------
+%s`, offsetToPageNumber(int64(d.Header.PageSize), p.Offset), p.String()))
+	}
+	return buf.String()
 }
