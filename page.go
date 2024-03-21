@@ -96,6 +96,18 @@ func newPage(f io.ReadSeeker, root bool, pageSize uint16, offset int64) (*page, 
 	return &p, nil
 }
 
+func (p *page) TablesNames() []string {
+	s := []string{}
+	for _, c := range p.Cells {
+		if !c.IsTable() {
+			continue
+		}
+		offset := c.Header[0].Value + c.Header[1].Value
+		s = append(s, string(c.Data[offset:offset+c.Header[2].Value]))
+	}
+	return s
+}
+
 func (p *page) String() string {
 	var buf strings.Builder
 	buf.WriteString(fmt.Sprintf("Page Offset:%s%d\n", repeatStringDefault(11), p.Offset))

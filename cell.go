@@ -152,6 +152,25 @@ func parseInteriorTable(buf []byte, c *cell) error {
 	return nil
 }
 
+func (c *cell) IsTable() bool {
+	dataLength := len(c.Data)
+	if dataLength <= 0 {
+		return false
+	}
+	if len(c.Header) < 3 ||
+		c.Header[0].Type != SERIAL_TEXT ||
+		c.Header[1].Type != SERIAL_TEXT ||
+		c.Header[2].Type != SERIAL_TEXT {
+		return false
+	}
+	start := c.Header[0].Value + c.Header[1].Value + c.Header[2].Value + 1
+	end := start + 12
+	if end > int64(dataLength-1) {
+		return false
+	}
+	return string(c.Data[start:end]) == "CREATE TABLE"
+}
+
 // this is kind of stupid, whole thing probably is actually
 func (p *cell) String() string {
 	switch p.PageType {
@@ -189,12 +208,14 @@ func (p *cell) String() string {
 			HeaderSize        uint8
 			PayloadSize       uint64
 			FirstOverflowPage uint32
+			Header            []cellHeader
 			Data              string
 		}{
 			CellOffset:        p.Offset,
 			HeaderSize:        p.HeaderSize,
 			PayloadSize:       p.PayloadSize,
 			FirstOverflowPage: p.FirstOverflowPage,
+			Header:            p.Header,
 			Data:              string(p.Data),
 		})
 	case InteriorIndexType:
@@ -204,6 +225,7 @@ func (p *cell) String() string {
 			HeaderSize        uint8
 			PayloadSize       uint64
 			FirstOverflowPage uint32
+			Header            []cellHeader
 			Data              string
 		}{
 			CellOffset:        p.Offset,
@@ -211,6 +233,7 @@ func (p *cell) String() string {
 			HeaderSize:        p.HeaderSize,
 			PayloadSize:       p.PayloadSize,
 			FirstOverflowPage: p.FirstOverflowPage,
+			Header:            p.Header,
 			Data:              string(p.Data),
 		})
 	}
