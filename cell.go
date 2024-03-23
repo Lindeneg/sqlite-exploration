@@ -139,11 +139,14 @@ func parseLeafTableCell(buf []byte, c *cell) error {
 	// read page number of first overflow page
 	// these four bytes are 0, if there is no such page
 	offset += int64(read)
-	var overflowPage uint32
-	if err := readBigEndianInt(buf[offset:offset+4], &overflowPage); err != nil {
-		return err
+	if c.PageType != InteriorTableType {
+		var overflowPage uint32
+		if err := readBigEndianInt(buf[offset:offset+4], &overflowPage); err != nil {
+			return err
+		}
+		//fmt.Println(overflowPage, overflowPage)
+		c.FirstOverflowPage = uint32(overflowPage)
 	}
-	c.FirstOverflowPage = overflowPage
 	return nil
 }
 

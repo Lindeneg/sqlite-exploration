@@ -271,6 +271,11 @@ func (d *databaseFile) FindTableCtx(t string, root *page) ([]*page, *cell, error
 		return nil, nil, err
 	}
 	r, err := d.findLeavesFromInterior(p, nil)
+	//	l := r[len(r)-1]
+	//	fmt.Println(l.Cells[len(l.Cells)-1])
+	// cell ptrs: page 57, missing stuff: page 307
+	//	o, _ := d.newPageFromNumber(403)
+	//	fmt.Println(o)
 	return r, c, nil
 }
 
@@ -285,7 +290,17 @@ func (d *databaseFile) findLeavesFromInterior(root *page, pages []*page) ([]*pag
 	for _, c := range root.Cells {
 		p, _ := d.newPageFromNumber(int64(c.LeftPageNumber))
 		if p.Header.PageType != LeafTableType {
-			return d.findLeavesFromInterior(p, pages)
+			p2, _ := d.findLeavesFromInterior(p, pages)
+			pages = p2
+		} else {
+			pages = append(pages, p)
+		}
+	}
+	if root.Header.RightMostPointer > 0 {
+		p, _ := d.newPageFromNumber(int64(root.Header.RightMostPointer))
+		if p.Header.PageType != LeafTableType {
+			p2, _ := d.findLeavesFromInterior(p, pages)
+			pages = p2
 		} else {
 			pages = append(pages, p)
 		}

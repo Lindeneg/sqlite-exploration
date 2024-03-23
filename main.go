@@ -69,13 +69,20 @@ type columnCtx struct {
 
 func handleSelect(stmt *sqlparser.Select, db *databaseFile) {
 	selectCtx := NewSelectCtx(stmt)
+	fmt.Println(selectCtx)
 	for _, t := range selectCtx.Tables {
+		i := 0
 		pages, cell, err := db.FindTableCtx(t, db.RootPage)
 		if err != nil {
 			fmt.Println("Failed to query table "+t, err)
 			continue
 		}
 		for _, page := range pages {
+			i += len(page.Cells)
+			//			if selectCtx.Identifiers[0] == "count(*)" {
+			//				i += len(page.Cells)
+			//				continue
+			//			}
 			columnsCtx := []columnCtx{}
 			// get header value and index
 			start := cell.GetOffsetFromHeader(len(cell.Header) - 1)
@@ -104,6 +111,7 @@ func handleSelect(stmt *sqlparser.Select, db *databaseFile) {
 				}
 			}
 			if len(selectCtx.Identifiers) != len(columnsCtx) {
+				// TODO specify which columns
 				log.Fatal(fmt.Sprintf("column not found on table %q", t))
 			}
 			// find index for each column
@@ -118,12 +126,11 @@ func handleSelect(stmt *sqlparser.Select, db *databaseFile) {
 					case SERIAL_TEXT:
 						offset := c.GetOffsetFromHeader(ct.headerIdx)
 						s = append(s, string(c.Data[offset:offset+h.Value]))
-					default:
-						fmt.Println(h.Type)
 					}
 				}
 				fmt.Println(strings.Join(s, "|"))
 			}
 		}
+		fmt.Println("COUNT: ", i)
 	}
 }
