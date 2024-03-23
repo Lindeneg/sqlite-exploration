@@ -223,26 +223,20 @@ func newDatabaseFile(databasePath string) (*databaseFile, error) {
 	return &db, nil
 }
 
-func addAllPages(db *databaseFile, p *page) error {
+func addTableLeaves(db *databaseFile, p *page) error {
 	if p.Header.PageType == InteriorTableType {
 		for _, c := range p.Cells {
-			if err := db.AddPage(int(c.LeftPageNumber)); err != nil {
-				return err
-			}
-			newPage := db.Pages[len(db.Pages)-1]
-			addAllPages(db, newPage)
-		}
-	} else {
-		for _, cell := range p.Cells {
-			n, err := cell.RootPage()
+			offset := pageNumberToOffset(int64(db.Header.PageSize), int64(c.LeftPageNumber))
+			pp, err := newPage(db.File, false, db.Header.PageSize, offset)
 			if err != nil {
-				continue
-			}
-			if err := db.AddPage(int(n)); err != nil {
 				return err
 			}
-			newPage := db.Pages[len(db.Pages)-1]
-			addAllPages(db, newPage)
+			if pp.Header.PageType == LeafTableType {
+				db.Pages = append(db.Pages, pp)
+			} else {
+				addTableLeaves(db, pp)
+
+			}
 		}
 	}
 	return nil
@@ -255,22 +249,11 @@ func (d *databaseFile) FindTableRootCell(t string, p *page) (*cell, error) {
 			return c, nil
 		}
 	}
-	for _, c := range p.Cells {
-		if c.LeftPageNumber <= 0 {
-			continue
-		}
-		offset := pageNumberToOffset(int64(d.Header.PageSize), int64(c.LeftPageNumber))
-		pp, _ := newPage(d.File, false, p.PageSize, offset)
-		pn, err := d.FindTableRootCell(t, pp)
-		if err == nil {
-			return pn, nil
-		}
-	}
 	return nil, errors.New("failed to find root cell for " + t)
 }
 
-func (d *databaseFile) FindTableRootPage(t string) (*page, *cell, error) {
-	c, err := d.FindTableRootCell(t, d.RootPage)
+func (d *databaseFile) FindTableCtx(t string, root *page) ([]*page, *cell, error) {
+	c, err := d.FindTableRootCell(t, root)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -280,22 +263,30 @@ func (d *databaseFile) FindTableRootPage(t string) (*page, *cell, error) {
 	}
 	p, err := newPage(d.File, false, d.Header.PageSize,
 		pageNumberToOffset(int64(d.Header.PageSize), pn))
-	//	c2, err := d.FindTableRootCell(t, p)
-	//	fmt.Println(c2)
 	if err != nil {
 		return nil, nil, err
 	}
-	return p, c, nil
+	r, err := d.findLeavesFromInterior(p, nil)
+	return r, c, nil
 }
 
-func (d *databaseFile) AddPage(pageNumber int) error {
-	offset := pageNumberToOffset(int64(d.Header.PageSize), int64(pageNumber))
-	p, err := newPage(d.File, false, d.Header.PageSize, offset)
-	if err != nil {
-		return err
+func (d *databaseFile) findLeavesFromInterior(root *page, pages []*page) ([]*page, error) {
+	if pages == nil {
+		pages = []*page{}
 	}
-	d.Pages = append(d.Pages, p)
-	return nil
+	if root.Header.PageType == LeafTableType {
+		pages = append(pages, root)
+		return pages, nil
+	}
+	for _, c := range root.Cells {
+		p, _ := d.newPageFromNumber(int64(c.LeftPageNumber))
+		if p.Header.PageType != LeafTableType {
+			return d.findLeavesFromInterior(p, pages)
+		} else {
+			pages = append(pages, p)
+		}
+	}
+	return pages, nil
 }
 
 func (d *databaseFile) TableNames() []string {
@@ -308,6 +299,11 @@ func (d *databaseFile) TableNames() []string {
 		names = d.RootPage.TablesNames()
 	}
 	return names
+}
+
+func (d *databaseFile) newPageFromNumber(pageNumber int64) (*page, error) {
+	return newPage(d.File, false, d.Header.PageSize,
+		pageNumberToOffset(int64(d.Header.PageSize), pageNumber))
 }
 
 func (d *databaseFile) String() string {
