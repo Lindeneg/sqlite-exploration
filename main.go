@@ -114,12 +114,12 @@ func handleSelect(stmt *sqlparser.Select, db *databaseFile) {
 					h := c.Header[ct.headerIdx]
 					switch h.Type {
 					case SERIAL_NULL:
-						if ct.name == "id" {
-							s = append(s, fmt.Sprintf("%d", c.RowID))
-						}
+						s = append(s, fmt.Sprintf("%d", c.RowID))
 					case SERIAL_TEXT:
 						offset := c.GetOffsetFromHeader(ct.headerIdx)
 						s = append(s, string(c.Data[offset:offset+h.Value]))
+					default:
+						fmt.Println(h.Type)
 					}
 				}
 				fmt.Println(strings.Join(s, "|"))

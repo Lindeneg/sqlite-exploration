@@ -249,6 +249,11 @@ func (d *databaseFile) FindTableRootCell(t string, p *page) (*cell, error) {
 			return c, nil
 		}
 	}
+	for _, c := range p.Cells {
+		p, _ := d.newPageFromNumber(int64(c.LeftPageNumber))
+		return d.FindTableRootCell(t, p)
+
+	}
 	return nil, errors.New("failed to find root cell for " + t)
 }
 
