@@ -90,16 +90,12 @@ func newPage(f io.ReadSeeker, root bool, pageSize uint16, offset int64) (*page, 
 		}
 		c, err := newCell(f, &p, int64(cellPtr))
 		if err != nil {
+			fmt.Println("SAD")
 			return nil, err
 		}
 		p.Cells = append(p.Cells, c)
 	}
 	return &p, nil
-}
-
-func newPageFromNumber(f io.ReadSeeker, pageSize uint16, pageNumber int64) (*page, error) {
-	return newPage(f, false, pageSize,
-		pageNumberToOffset(int64(pageSize), pageNumber))
 }
 
 func (p *page) TablesNames() []string {

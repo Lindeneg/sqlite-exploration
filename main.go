@@ -75,7 +75,6 @@ func handleSelect(stmt *sqlparser.Select, db *databaseFile) {
 			fmt.Println("Failed to query table "+t, err)
 			continue
 		}
-		i := 0
 		for _, page := range pages {
 			columnsCtx := []columnCtx{}
 			// get header value and index
@@ -116,9 +115,7 @@ func handleSelect(stmt *sqlparser.Select, db *databaseFile) {
 					switch h.Type {
 					case SERIAL_NULL:
 						if ct.name == "id" {
-							fmt.Println(c)
-							i++
-							s = append(s, fmt.Sprintf("%d", i))
+							s = append(s, fmt.Sprintf("%d", c.RowID))
 						}
 					case SERIAL_TEXT:
 						offset := c.GetOffsetFromHeader(ct.headerIdx)

@@ -51,38 +51,32 @@ func offsetToPageNumber(pageSize int64, offset int64) int64 {
 	return (offset / pageSize) + 1
 }
 
-func readVariant(data []byte) (int64, int) {
-	i := 0
-	for i < len(data) {
-		if data[i]&0x80 == 0 {
-			i++
+func readVarint(buf []byte) (int64, int) {
+	var varint int64 = 0
+	var read int = 0
+	for i, b := range buf {
+		bb := int64(b)
+		read += 1
+		if i == 8 {
+			varint = (varint << 8) | bb
 			break
+		} else {
+			varint = (varint << 7) | (bb & 0x7f)
+			if bb < 0x80 {
+				break
+			}
 		}
-		i++
 	}
-	var val int64 = 0
-	dataSlice := data[:i]
-	for i, d := range dataSlice {
-		if i == len(dataSlice)-1 {
-			val += int64(d)
-			break
-		}
-		var n int64 = 0
-		if i > 0 {
-			n = int64(i) - 1
-		}
-		val += (int64(d) - 128) * (128 ^ n)
-	}
-	return val, i
+	return varint, read
 }
 
-func readVariants(data []byte) ([]int64, int) {
-	variants := []int64{}
+func readVarints(data []byte) ([]int64, int) {
+	varints := []int64{}
 	i := 0
 	for i < len(data) {
-		variant, read := readVariant(data[i:])
-		variants = append(variants, variant)
+		varint, read := readVarint(data[i:])
+		varints = append(varints, varint)
 		i += read
 	}
-	return variants, i
+	return varints, i
 }

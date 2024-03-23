@@ -47,7 +47,7 @@ type cell struct {
 	LeftPageNumber    uint32
 	HeaderSize        uint8
 	PayloadSize       uint64
-	RowID             uint8
+	RowID             int64
 	FirstOverflowPage uint32
 	Header            []cellHeader
 	Data              []byte
@@ -75,6 +75,7 @@ func newCell(f io.ReadSeeker, p *page, offset int64) (*cell, error) {
 		break
 	case InteriorTableType:
 		if err := parseInteriorTable(buf, &c); err != nil {
+			fmt.Println("SAD2")
 			return nil, err
 		}
 		break
@@ -93,14 +94,14 @@ func newCell(f io.ReadSeeker, p *page, offset int64) (*cell, error) {
 func parseLeafTableCell(buf []byte, c *cell) error {
 	var offset int64 = 0
 	// get payload length in bytes (which includes header size)
-	payloadLength, read := readVariant(buf)
+	payloadLength, read := readVarint(buf)
 	offset += int64(read)
 	// get row id of cell
-	rowID, read := readVariant(buf[offset:])
+	rowID, read := readVarint(buf[offset:])
 	offset += int64(read)
-	c.RowID = uint8(rowID)
+	c.RowID = rowID
 	// get the header length
-	headerLength, read := readVariant(buf[offset:])
+	headerLength, read := readVarint(buf[offset:])
 	c.HeaderSize = uint8(headerLength)
 	// set the actual payload size i.e without header length
 	c.PayloadSize = uint64(payloadLength) - uint64(c.HeaderSize)
@@ -114,7 +115,7 @@ func parseLeafTableCell(buf []byte, c *cell) error {
 	}
 	offset += int64(read)
 	// skip header size byte
-	variants, _ := readVariants(headerBuf[1:])
+	variants, _ := readVarints(headerBuf[1:])
 	// parse variants
 	for _, variant := range variants {
 		if variant > int64(SERIAL_TEXT) && variant%2 == 1 {
@@ -152,9 +153,8 @@ func parseInteriorTable(buf []byte, c *cell) error {
 	if err := readBigEndianInt(buf[:4], &c.LeftPageNumber); err != nil {
 		return err
 	}
-	if err := readBigEndianInt(buf[4:5], &c.RowID); err != nil {
-		return err
-	}
+	rowID, _ := readVarint(buf[4:])
+	c.RowID = rowID
 	return nil
 }
 
@@ -228,7 +228,7 @@ func (p *cell) String() string {
 			CellOffset        int64
 			HeaderSize        uint8
 			PayloadSize       uint64
-			RowID             uint8
+			RowID             int64
 			FirstOverflowPage uint32
 			Header            []cellHeader
 			Data              string
@@ -245,7 +245,7 @@ func (p *cell) String() string {
 		return primitiveStructString(struct {
 			CellOffset     int64
 			LeftPageNumber uint32
-			RowID          uint8
+			RowID          int64
 		}{
 			CellOffset:     p.Offset,
 			LeftPageNumber: p.LeftPageNumber,

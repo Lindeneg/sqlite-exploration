@@ -261,8 +261,7 @@ func (d *databaseFile) FindTableCtx(t string, root *page) ([]*page, *cell, error
 	if err != nil {
 		return nil, nil, err
 	}
-	p, err := newPage(d.File, false, d.Header.PageSize,
-		pageNumberToOffset(int64(d.Header.PageSize), pn))
+	p, err := d.newPageFromNumber(pn)
 	if err != nil {
 		return nil, nil, err
 	}
