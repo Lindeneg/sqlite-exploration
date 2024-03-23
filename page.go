@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -99,13 +100,24 @@ func newPage(f io.ReadSeeker, root bool, pageSize uint16, offset int64) (*page, 
 func (p *page) TablesNames() []string {
 	s := []string{}
 	for _, c := range p.Cells {
-		if !c.IsTable() {
+		name, err := c.TableName()
+		if err != nil {
 			continue
 		}
-		offset := c.Header[0].Value + c.Header[1].Value
-		s = append(s, string(c.Data[offset:offset+c.Header[2].Value]))
+		s = append(s, name)
 	}
 	return s
+}
+
+func (p *page) CellFromTableName(t string) (*cell, error) {
+	for _, c := range p.Cells {
+		name, err := c.TableName()
+		if err != nil || name != t {
+			continue
+		}
+		return c, nil
+	}
+	return nil, errors.New("table was not found: " + t)
 }
 
 func (p *page) String() string {

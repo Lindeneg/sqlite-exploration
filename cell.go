@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 )
 
 type serialType int
@@ -24,6 +25,11 @@ const (
 	SERIAL_INTERNAL_2
 	SERIAL_BLOB
 	SERIAL_TEXT
+)
+
+var (
+	TableTypeBytes []byte = []byte{116, 97, 98, 108, 101}
+	IndexTypeBytes []byte = []byte{105, 110, 100, 101, 120}
 )
 
 type cellHeader struct {
@@ -152,23 +158,66 @@ func parseInteriorTable(buf []byte, c *cell) error {
 	return nil
 }
 
-func (c *cell) IsTable() bool {
+func isCellType(c *cell, b []byte) bool {
 	dataLength := len(c.Data)
 	if dataLength <= 0 {
 		return false
 	}
-	if len(c.Header) < 3 ||
+	if len(c.Header) < 1 ||
+		c.Header[0].Type != SERIAL_TEXT {
+		return false
+	}
+	return reflect.DeepEqual(c.Data[:c.Header[0].Value], b)
+}
+
+func (c *cell) TableName() (string, error) {
+	if !c.IsTable() {
+		return "", errors.New("cell is not table")
+	}
+	offset := c.GetOffsetFromHeader(2)
+	return string(c.Data[offset : offset+c.Header[2].Value]), nil
+}
+
+func (c *cell) IsTable() bool {
+	return isCellType(c, TableTypeBytes)
+}
+
+func (c *cell) IsIndex() bool {
+	return isCellType(c, IndexTypeBytes)
+}
+
+func (c *cell) GetOffsetFromHeader(n int) int64 {
+	if n >= len(c.Header) {
+		return 0
+	}
+	var offset int64 = 0
+	for i := 0; i < n; i++ {
+		offset += c.Header[i].Value
+	}
+	return offset
+}
+
+func (c *cell) RootPage() (int64, error) {
+	if c.PageType == InteriorTableType {
+		return 0, errors.New("incorrect table type")
+	}
+	dataLength := len(c.Data)
+	if dataLength <= 0 {
+		return 0, errors.New("cell contains no data")
+	}
+	if len(c.Header) < 4 ||
 		c.Header[0].Type != SERIAL_TEXT ||
 		c.Header[1].Type != SERIAL_TEXT ||
-		c.Header[2].Type != SERIAL_TEXT {
-		return false
+		c.Header[2].Type != SERIAL_TEXT ||
+		c.Header[3].Type != SERIAL_8_TWOS_COMPLEMENT {
+		return 0, errors.New("unexpected header types")
 	}
-	start := c.Header[0].Value + c.Header[1].Value + c.Header[2].Value + 1
-	end := start + 12
+	start := c.GetOffsetFromHeader(3)
+	end := start + 1
 	if end > int64(dataLength-1) {
-		return false
+		return 0, errors.New("unexpected header values")
 	}
-	return string(c.Data[start:end]) == "CREATE TABLE"
+	return int64(c.Data[start : end+1][0]), nil
 }
 
 // this is kind of stupid, whole thing probably is actually

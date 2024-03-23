@@ -220,14 +220,72 @@ func newDatabaseFile(databasePath string) (*databaseFile, error) {
 		return nil, err
 	}
 	db.RootPage = rootPage
-	if db.RootPage.Header.PageType == InteriorTableType {
-		for _, cell := range db.RootPage.Cells {
-			if err := db.AddPage(int(cell.LeftPageNumber)); err != nil {
-				return nil, err
+	return &db, nil
+}
+
+func addAllPages(db *databaseFile, p *page) error {
+	if p.Header.PageType == InteriorTableType {
+		for _, c := range p.Cells {
+			if err := db.AddPage(int(c.LeftPageNumber)); err != nil {
+				return err
 			}
+			newPage := db.Pages[len(db.Pages)-1]
+			addAllPages(db, newPage)
+		}
+	} else {
+		for _, cell := range p.Cells {
+			n, err := cell.RootPage()
+			if err != nil {
+				continue
+			}
+			if err := db.AddPage(int(n)); err != nil {
+				return err
+			}
+			newPage := db.Pages[len(db.Pages)-1]
+			addAllPages(db, newPage)
 		}
 	}
-	return &db, nil
+	return nil
+}
+
+func (d *databaseFile) FindTableRootCell(t string, p *page) (*cell, error) {
+	if p.Header.PageType == LeafTableType {
+		c, err := p.CellFromTableName(t)
+		if err == nil {
+			return c, nil
+		}
+	}
+	for _, c := range p.Cells {
+		if c.LeftPageNumber <= 0 {
+			continue
+		}
+		offset := pageNumberToOffset(int64(d.Header.PageSize), int64(c.LeftPageNumber))
+		pp, _ := newPage(d.File, false, p.PageSize, offset)
+		pn, err := d.FindTableRootCell(t, pp)
+		if err == nil {
+			return pn, nil
+		}
+	}
+	return nil, errors.New("failed to find root cell for " + t)
+}
+
+func (d *databaseFile) FindTableRootPage(t string) (*page, *cell, error) {
+	c, err := d.FindTableRootCell(t, d.RootPage)
+	if err != nil {
+		return nil, nil, err
+	}
+	pn, err := c.RootPage()
+	if err != nil {
+		return nil, nil, err
+	}
+	p, err := newPage(d.File, false, d.Header.PageSize,
+		pageNumberToOffset(int64(d.Header.PageSize), pn))
+	//	c2, err := d.FindTableRootCell(t, p)
+	//	fmt.Println(c2)
+	if err != nil {
+		return nil, nil, err
+	}
+	return p, c, nil
 }
 
 func (d *databaseFile) AddPage(pageNumber int) error {
@@ -238,6 +296,18 @@ func (d *databaseFile) AddPage(pageNumber int) error {
 	}
 	d.Pages = append(d.Pages, p)
 	return nil
+}
+
+func (d *databaseFile) TableNames() []string {
+	var names []string
+	if d.RootPage.Header.PageType == InteriorTableType {
+		for _, p := range d.Pages {
+			names = append(names, p.TablesNames()...)
+		}
+	} else {
+		names = d.RootPage.TablesNames()
+	}
+	return names
 }
 
 func (d *databaseFile) String() string {
