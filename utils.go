@@ -5,8 +5,24 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 )
+
+var (
+	LeniantCleanKeyRegexp = regexp.MustCompile("\\[|\\]")
+	CleanKeyRegexp        = regexp.MustCompile("\"|\\[|\\]")
+)
+
+func cleanKeyString(key string) string {
+	k := CleanKeyRegexp.ReplaceAllString(key, "")
+	return strings.ToLower(k)
+}
+
+func leniantCleanKeyString(key string) string {
+	k := LeniantCleanKeyRegexp.ReplaceAllString(key, "")
+	return strings.ToLower(k)
+}
 
 func readBigEndianInt(b []byte, out any) error {
 	return binary.Read(bytes.NewReader(b), binary.BigEndian, out)

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -67,18 +66,17 @@ func (p *pageHeader) String() string {
 
 type page struct {
 	Offset   int64
-	IsRoot   bool
 	PageSize uint16
 	Header   *pageHeader
 	Cells    []*cell
 }
 
-func newPage(f io.ReadSeeker, root bool, pageSize uint16, offset int64) (*page, error) {
+func newPage(f io.ReadSeeker, pageSize uint16, offset int64) (*page, error) {
 	header, err := newPageHeader(f, offset)
 	if err != nil {
 		return nil, err
 	}
-	p := page{Header: header, IsRoot: root, PageSize: pageSize, Offset: offset}
+	p := page{Header: header, PageSize: pageSize, Offset: offset}
 	cellPtrBuf := make([]byte, p.Header.CellCount*2)
 	if _, err := f.Read(cellPtrBuf); err != nil {
 		return nil, err
@@ -90,7 +88,6 @@ func newPage(f io.ReadSeeker, root bool, pageSize uint16, offset int64) (*page, 
 		}
 		c, err := newCell(f, &p, int64(cellPtr))
 		if err != nil {
-			fmt.Println("SAD")
 			return nil, err
 		}
 		p.Cells = append(p.Cells, c)
@@ -98,27 +95,9 @@ func newPage(f io.ReadSeeker, root bool, pageSize uint16, offset int64) (*page, 
 	return &p, nil
 }
 
-func (p *page) TablesNames() []string {
-	s := []string{}
-	for _, c := range p.Cells {
-		name, err := c.TableName()
-		if err != nil {
-			continue
-		}
-		s = append(s, name)
-	}
-	return s
-}
-
-func (p *page) CellFromTableName(t string) (*cell, error) {
-	for _, c := range p.Cells {
-		name, err := c.TableName()
-		if err != nil || name != t {
-			continue
-		}
-		return c, nil
-	}
-	return nil, errors.New("table was not found: " + t)
+func newPageFromNumber(d *databaseFile, pageNumber int64) (*page, error) {
+	return newPage(d.File, d.Header.PageSize,
+		pageNumberToOffset(int64(d.Header.PageSize), pageNumber))
 }
 
 func (p *page) String() string {
