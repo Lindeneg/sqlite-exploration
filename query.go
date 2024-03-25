@@ -38,9 +38,9 @@ func NewSelectCtx(stmt *sqlparser.Select) selectCtx {
 	}
 }
 
-func newQueryContext(q selectCtx, rootCell *cell) *queryContext {
+func newQueryContext(s selectCtx, rootCell *cell) *queryContext {
 	data := []string{}
-	return &queryContext{q, rootCell, 0, data}
+	return &queryContext{s, rootCell, 0, data}
 }
 
 func HandleSelect(s selectCtx, d *databaseFile) {
@@ -56,12 +56,12 @@ func HandleSelect(s selectCtx, d *databaseFile) {
 			continue
 		}
 		page, _ := newPageFromNumber(d, pageNumber)
-		query := newQueryContext(s, rootCell)
-		queryTable(d, page, query)
-		if query.query.IsCount {
-			fmt.Println(query.count)
+		q := newQueryContext(s, rootCell)
+		queryTable(d, page, q)
+		if q.query.IsCount {
+			fmt.Println(q.count)
 		} else {
-			fmt.Println(strings.Join(query.data, "\n"))
+			fmt.Println(strings.Join(q.data, "\n"))
 		}
 	}
 }
@@ -72,54 +72,7 @@ func queryTable(db *databaseFile, p *page, q *queryContext) error {
 	}
 	isInterior := p.Header.PageType == InteriorTableType
 	if !isInterior && p.Header.PageType == LeafTableType {
-	Outer:
-		for _, cell := range p.Cells {
-			if q.query.Limit > 0 && q.count >= q.query.Limit {
-				return nil
-			}
-			// holds result
-			strs := []string{}
-			// map column values to avoid
-			// repeatdly reading from cell
-			column := map[string]string{}
-			for k, v := range q.query.Constraint {
-				idx, ok := q.rootCell.ColumnMap[k]
-				// constraint column does not exist
-				if !ok {
-					continue Outer
-				}
-				d := string(cell.ReadDataFromHeaderIndex(idx))
-				column[k] = d
-				// constraint is not satisfied
-				if strings.ToLower(string(d)) != v {
-					continue Outer
-				}
-			}
-			for _, col := range q.query.Identifiers {
-				if q.query.IsCount {
-					strs = append(strs, "")
-				} else {
-					value, ok := column[col]
-					if !ok {
-						idx, ok := q.rootCell.ColumnMap[col]
-						if !ok {
-							continue Outer
-						}
-						value = string(cell.ReadDataFromHeaderIndex(idx))
-					}
-					if len(value) <= 0 && col == "id" {
-						value = fmt.Sprintf("%d", cell.RowID)
-					}
-					strs = append(strs, value)
-				}
-			}
-			if len(strs) > 0 {
-				if !q.query.IsCount {
-					q.data = append(q.data, strings.Join(strs, "|"))
-				}
-				q.count++
-			}
-		}
+		handleQueryLeaf(p, q)
 	} else if isInterior {
 		for _, c := range p.Cells {
 			if c.LeftPageNumber <= 0 {
@@ -144,9 +97,66 @@ func queryTable(db *databaseFile, p *page, q *queryContext) error {
 	return nil
 }
 
-func handleQueryLeaf()       {}
-func handleQueryConstraint() {}
-func handleQueryIdentifers() {}
+func handleQueryLeaf(p *page, q *queryContext) {
+	for _, c := range p.Cells {
+		if q.query.Limit > 0 && q.count >= q.query.Limit {
+			return
+		}
+		// map column values to avoid
+		// repeatdly reading from cell
+		col := map[string]string{}
+		handleQueryConstraint(col, c, q)
+		strs := handleQueryIdentifers(col, c, q)
+		if len(strs) > 0 {
+			if !q.query.IsCount {
+				q.data = append(q.data, strings.Join(strs, "|"))
+			}
+			q.count++
+		}
+	}
+
+}
+
+func handleQueryConstraint(col map[string]string, c *cell, q *queryContext) bool {
+	for k, v := range q.query.Constraint {
+		idx, ok := q.rootCell.ColumnMap[k]
+		if !ok {
+			return false
+		}
+		value := string(c.ReadDataFromHeaderIndex(idx))
+		col[k] = value
+		if strings.ToLower(string(value)) != v {
+			return false
+		}
+	}
+	return true
+}
+
+func handleQueryIdentifers(col map[string]string, c *cell, q *queryContext) []string {
+	strs := []string{}
+	for _, k := range q.query.Identifiers {
+		if q.query.IsCount {
+			strs = append(strs, "")
+		} else {
+			value, ok := col[k]
+			if !ok {
+				idx, ok := q.rootCell.ColumnMap[k]
+				if !ok {
+					// TODO print error msg
+					return strs
+				}
+				value = string(c.ReadDataFromHeaderIndex(idx))
+			}
+			if len(value) <= 0 && k == "id" {
+				value = fmt.Sprintf("%d", c.RowID)
+			}
+			if len(value) > 0 {
+				strs = append(strs, value)
+			}
+		}
+	}
+	return strs
+}
 
 func sqlWhereToConstraint(w *sqlparser.Where) map[string]string {
 	if w == nil {
