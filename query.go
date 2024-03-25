@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -21,10 +22,11 @@ type selectCtx struct {
 }
 
 type queryContext struct {
-	query    selectCtx
-	rootCell *cell
-	count    int
-	data     []string
+	query     selectCtx
+	tableName string
+	rootCell  *cell
+	count     int
+	data      []string
 }
 
 func NewSelectCtx(stmt *sqlparser.Select) selectCtx {
@@ -38,12 +40,13 @@ func NewSelectCtx(stmt *sqlparser.Select) selectCtx {
 	}
 }
 
-func newQueryContext(s selectCtx, rootCell *cell) *queryContext {
+func newQueryContext(s selectCtx, tableName string, rootCell *cell) *queryContext {
 	data := []string{}
-	return &queryContext{s, rootCell, 0, data}
+	return &queryContext{s, tableName, rootCell, 0, data}
 }
 
 func HandleSelect(s selectCtx, d *databaseFile) {
+	// TODO look into a channel per table
 	for _, tableName := range s.Tables {
 		rootCell, ok := d.Tables[tableName]
 		if !ok {
@@ -56,8 +59,12 @@ func HandleSelect(s selectCtx, d *databaseFile) {
 			continue
 		}
 		page, _ := newPageFromNumber(d, pageNumber)
-		q := newQueryContext(s, rootCell)
-		queryTable(d, page, q)
+		q := newQueryContext(s, tableName, rootCell)
+		err = queryTable(d, page, q)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
 		if q.query.IsCount {
 			fmt.Println(q.count)
 		} else {
@@ -72,41 +79,55 @@ func queryTable(db *databaseFile, p *page, q *queryContext) error {
 	}
 	isInterior := p.Header.PageType == InteriorTableType
 	if !isInterior && p.Header.PageType == LeafTableType {
-		handleQueryLeaf(p, q)
+		if err := handleQueryLeaf(p, q); err != nil {
+			return err
+		}
 	} else if isInterior {
 		for _, c := range p.Cells {
 			if c.LeftPageNumber <= 0 {
 				continue
 			}
-			if pn, err := newPageFromNumber(db, int64(c.LeftPageNumber)); err == nil {
-				queryTable(db, pn, q)
-			} else {
-				fmt.Println(err.Error())
+			pn, err := newPageFromNumber(db, int64(c.LeftPageNumber))
+			if err != nil {
+				return err
 			}
+			if err = queryTable(db, pn, q); err != nil {
+				return err
+			}
+
 		}
-	} else {
-		fmt.Printf("unhandled page %s\n", p)
 	}
 	if isInterior && p.Header.RightMostPointer > 0 {
-		if pn, err := newPageFromNumber(db, int64(p.Header.RightMostPointer)); err == nil {
-			queryTable(db, pn, q)
-		} else {
-			fmt.Println(err.Error())
+		pn, err := newPageFromNumber(db, int64(p.Header.RightMostPointer))
+		if err != nil {
+			return err
+		}
+		if err = queryTable(db, pn, q); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func handleQueryLeaf(p *page, q *queryContext) {
+func handleQueryLeaf(p *page, q *queryContext) error {
 	for _, c := range p.Cells {
 		if q.query.Limit > 0 && q.count >= q.query.Limit {
-			return
+			return nil
 		}
 		// map column values to avoid
 		// repeatdly reading from cell
 		col := map[string]string{}
-		handleQueryConstraint(col, c, q)
-		strs := handleQueryIdentifers(col, c, q)
+		ok, err := handleQueryConstraint(col, c, q)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		strs, err := handleQueryIdentifers(col, c, q)
+		if err != nil {
+			return err
+		}
 		if len(strs) > 0 {
 			if !q.query.IsCount {
 				q.data = append(q.data, strings.Join(strs, "|"))
@@ -114,25 +135,30 @@ func handleQueryLeaf(p *page, q *queryContext) {
 			q.count++
 		}
 	}
+	return nil
 
 }
 
-func handleQueryConstraint(col map[string]string, c *cell, q *queryContext) bool {
+func handleQueryConstraint(col map[string]string, c *cell, q *queryContext) (bool, error) {
 	for k, v := range q.query.Constraint {
 		idx, ok := q.rootCell.ColumnMap[k]
 		if !ok {
-			return false
+			return false, errors.New(
+				fmt.Sprintf("constraint %q not found on table %q cell %d", k, q.tableName, c.RowID))
 		}
 		value := string(c.ReadDataFromHeaderIndex(idx))
+		if k == "id" && len(value) <= 0 {
+			value = fmt.Sprintf("%d", c.RowID)
+		}
 		col[k] = value
 		if strings.ToLower(string(value)) != v {
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
-func handleQueryIdentifers(col map[string]string, c *cell, q *queryContext) []string {
+func handleQueryIdentifers(col map[string]string, c *cell, q *queryContext) ([]string, error) {
 	strs := []string{}
 	for _, k := range q.query.Identifiers {
 		if q.query.IsCount {
@@ -142,8 +168,8 @@ func handleQueryIdentifers(col map[string]string, c *cell, q *queryContext) []st
 			if !ok {
 				idx, ok := q.rootCell.ColumnMap[k]
 				if !ok {
-					// TODO print error msg
-					return strs
+					return strs, errors.New(
+						fmt.Sprintf("%q not found on table %q cell %d", k, q.tableName, c.RowID))
 				}
 				value = string(c.ReadDataFromHeaderIndex(idx))
 			}
@@ -155,7 +181,7 @@ func handleQueryIdentifers(col map[string]string, c *cell, q *queryContext) []st
 			}
 		}
 	}
-	return strs
+	return strs, nil
 }
 
 func sqlWhereToConstraint(w *sqlparser.Where) map[string]string {
