@@ -12,10 +12,16 @@ import (
 
 // https://www.sqlite.org/fileformat.html
 
+var t int64
+var timing bool = false
+
 func main() {
-	t := time.Now().UnixMilli()
 	if len(os.Args) < 3 {
 		log.Fatal("please provide arguments: file command")
+	}
+	if len(os.Args) > 3 && os.Args[3] == "-t" {
+		timing = true
+		t = time.Now().UnixMilli()
 	}
 	databaseFile := os.Args[1]
 	cmd := os.Args[2]
@@ -43,7 +49,9 @@ func main() {
 			HandleSelect(NewSelectCtx(stmt), db)
 		}
 	}
-	diff := float64(time.Now().UnixMilli() - t)
-	fmt.Println(diff/1000, "seconds")
+	if timing {
+		diff := float64(time.Now().UnixMilli() - t)
+		fmt.Println(diff/1000, "seconds")
+	}
 
 }
