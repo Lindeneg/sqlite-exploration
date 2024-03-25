@@ -110,7 +110,17 @@ func newCell(f io.ReadSeeker, p *page, offset int64) (*cell, error) {
 	return &c, nil
 }
 
+func (c *cell) ReadDataFromHeaderIndex(idx int) []byte {
+	header := c.Header[idx]
+	start := c.HeaderOffsetFromN(idx)
+	end := start + header.Value
+	return c.Data[start:end]
+}
+
 func (c *cell) ParseColumnMap() {
+	if len(c.ColumnMap) > 0 {
+		return
+	}
 	start := c.HeaderOffsetFromN(len(c.Header) - 1)
 	end := start + c.Header[len(c.Header)-1].Value
 	data := string(c.Data[start:end])

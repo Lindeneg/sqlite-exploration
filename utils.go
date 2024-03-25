@@ -11,12 +11,12 @@ import (
 
 var (
 	LeniantCleanKeyRegexp = regexp.MustCompile("\\[|\\]")
-	CleanKeyRegexp        = regexp.MustCompile("\"|\\[|\\]")
+	CleanKeyRegexp        = regexp.MustCompile("\"|'|\\[|\\]")
 )
 
 func cleanKeyString(key string) string {
 	k := CleanKeyRegexp.ReplaceAllString(key, "")
-	return strings.ToLower(k)
+	return strings.TrimSpace(strings.ToLower(k))
 }
 
 func leniantCleanKeyString(key string) string {
