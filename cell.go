@@ -138,7 +138,8 @@ func (c *cell) ParseColumnMap() {
 		} else {
 			name = strings.ToLower(strings.TrimSpace(name))
 		}
-		name = leniantCleanKeyString(name)
+		name = cleanKeyString(name)
+		name = strings.Split(name, " ")[0]
 		c.ColumnMap[name] = i
 	}
 }
@@ -176,6 +177,7 @@ func (c *cell) HeaderOffsetFromN(n int) int64 {
 	}
 	var offset int64 = 0
 	for i := 0; i < n; i++ {
+		// TODO handle offset correctly
 		offset += c.Header[i].Value
 	}
 	return offset

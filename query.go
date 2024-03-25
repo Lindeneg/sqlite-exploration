@@ -144,6 +144,10 @@ func queryTable(db *databaseFile, p *page, q *queryContext) error {
 	return nil
 }
 
+func handleQueryLeaf()       {}
+func handleQueryConstraint() {}
+func handleQueryIdentifers() {}
+
 func sqlWhereToConstraint(w *sqlparser.Where) map[string]string {
 	if w == nil {
 		return nil
