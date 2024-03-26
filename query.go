@@ -22,11 +22,13 @@ type selectCtx struct {
 }
 
 type queryContext struct {
-	query     selectCtx
-	tableName string
-	rootCell  *cell
-	count     int
-	data      []string
+	query       selectCtx
+	tableName   string
+	rootCell    *cell
+	count       int
+	indexedID   map[int]bool
+	hasIndicies bool
+	data        []string
 }
 
 func NewSelectCtx(stmt *sqlparser.Select) selectCtx {
@@ -40,29 +42,30 @@ func NewSelectCtx(stmt *sqlparser.Select) selectCtx {
 	}
 }
 
-func newQueryContext(s selectCtx, tableName string, rootCell *cell) *queryContext {
+func newQueryContext(s selectCtx, tableName string) *queryContext {
 	data := []string{}
-	return &queryContext{s, tableName, rootCell, 0, data}
+	indexedID := map[int]bool{}
+	return &queryContext{s, tableName, nil, 0, indexedID, false, data}
 }
 
 func HandleSelect(s selectCtx, d *databaseFile) {
-	// TODO look into a channel per table
-	for _, tableName := range s.Tables {
-		rootCell, ok := d.Tables[tableName]
+	for _, t := range s.Tables {
+		q := newQueryContext(s, t)
+		rootCell, ok := d.Tables[t]
 		if !ok {
-			fmt.Printf("failed to find root cell for table %s\n", tableName)
+			fmt.Printf("failed to find root cell for table %s\n", t)
 			continue
 		}
+		q.rootCell = rootCell
 		pageNumber, err := rootCell.RootPage()
 		if err != nil {
 			fmt.Printf("failed to find root page number for cell %d\n", rootCell.RowID)
 			continue
 		}
 		page, _ := newPageFromNumber(d, pageNumber)
-		q := newQueryContext(s, tableName, rootCell)
 		err = queryTable(d, page, q)
 		if err != nil {
-			fmt.Println(err.Error())
+			fmt.Println(err)
 			return
 		}
 		if q.query.IsCount {
@@ -117,6 +120,7 @@ func handleQueryLeaf(p *page, q *queryContext) error {
 		// map column values to avoid
 		// repeatdly reading from cell
 		col := map[string]string{}
+		// TODO only do query constraints if rowIDS is empty
 		ok, err := handleQueryConstraint(col, c, q)
 		if err != nil {
 			return err
@@ -146,8 +150,9 @@ func handleQueryConstraint(col map[string]string, c *cell, q *queryContext) (boo
 			return false, errors.New(
 				fmt.Sprintf("constraint %q not found on table %q cell %d", k, q.tableName, c.RowID))
 		}
-		value := string(c.ReadDataFromHeaderIndex(idx))
-		if k == "id" && len(value) <= 0 {
+		d, _ := c.ReadDataFromHeaderIndex(idx)
+		value := fmt.Sprintf("%v", d)
+		if len(value) <= 0 && strings.Contains(k, "id") {
 			value = fmt.Sprintf("%d", c.RowID)
 		}
 		col[k] = value
@@ -171,9 +176,11 @@ func handleQueryIdentifers(col map[string]string, c *cell, q *queryContext) ([]s
 					return strs, errors.New(
 						fmt.Sprintf("%q not found on table %q cell %d", k, q.tableName, c.RowID))
 				}
-				value = string(c.ReadDataFromHeaderIndex(idx))
+				if tmp, err := c.ReadDataFromHeaderIndex(idx); err == nil {
+					value = fmt.Sprintf("%v", tmp)
+				}
 			}
-			if len(value) <= 0 && k == "id" {
+			if len(value) <= 0 && strings.Contains(k, "id") {
 				value = fmt.Sprintf("%d", c.RowID)
 			}
 			if len(value) > 0 {
